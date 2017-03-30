@@ -45,7 +45,6 @@ int main()
 	int packet_counter = 0;				// counts packets in order to have numerated packets
 	struct pcap_pkthdr* packet_header;	// header of packet (timestamp and length)
 	const unsigned char* packet_data;	// packet content
-	
     /* Retrieve the device list on the local machine */
     if(pcap_findalldevs(&devices, error_buffer) == -1)
 	{
@@ -140,15 +139,21 @@ int main()
 
 		/* NETWORK LAYER - IPv4 */
 		// Retrieve the position of the ip header
-		ih = (ip_header*) (packet_data + sizeof(ethernet_header));
+		ih = (ip_header*)(packet_data + sizeof(ethernet_header));
 		// Print ip header
 		print_ip_header(ih);
 
 		/* TRANSPORT LAYER - UDP */
 		// Retrieve the position of the udp header
 		ip_len = ih->header_length * 4; // header length is calculated using words (1 word = 4 bytes)
-		uh = (udp_header*) ((unsigned char*)ih + ip_len);
+		uh = (udp_header*)((unsigned char*)ih + ip_len);
 
+		print_udp_header(uh);
+
+		app_length=ntohs(uh->datagram_length)-8;
+		app_data = ((unsigned char*)uh)+8;
+
+		print_application_data(app_data,app_length);
 		// For demonstration purpose
 		printf("\n\nPress enter to receive new packet\n");
 		getchar();
@@ -280,6 +285,36 @@ void print_ip_header(ip_header * ih)
 	printf("\n\tSource:\t\t\t%u.%u.%u.%u", ih->src_addr[0], ih->src_addr[1], ih->src_addr[2], ih->src_addr[3]);
 	printf("\n\tDestination:\t\t%u.%u.%u.%u", ih->dst_addr[0], ih->dst_addr[1], ih->dst_addr[2], ih->dst_addr[3]);
 	
+	printf("\n=============================================================");
+
+	return;
+}
+
+void print_udp_header(udp_header * uh)
+{
+	printf("\n=============================================================");
+	printf("\n\tTRANSPORT LAYER  -  User Datagram Protocol (UDP)");
+
+	print_raw_data((unsigned char*)uh,8);
+	
+	printf("\n\tSource port:\t\t%u",ntohs(uh->src_port));
+	printf("\n\tDestination port:\t%u",ntohs(uh->dest_port));
+	printf("\n\tHeader length:\t\t%u",ntohs(uh->datagram_length));
+	printf("\n\tChecksum:\t\t%u",ntohs(uh->checksum));
+
+	printf("\n=============================================================");
+
+	return;
+}
+
+void print_application_data(unsigned char* data,long data_length)
+{
+	printf("\n=============================================================");
+	printf("\n\tAPPLICATION LAYER");
+
+	print_raw_data(data,data_length);
+	printf("\n\tData length:\t%u",data_length);
+
 	printf("\n=============================================================");
 
 	return;
