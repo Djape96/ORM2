@@ -24,7 +24,15 @@
 
 // Function declarations
 void statistics_handler(unsigned char* param, const struct pcap_pkthdr *packet_header, const unsigned char *packet_data);
+void packet_handler(unsigned char* param, const struct pcap_pkthdr *packet_header, const unsigned char *packet_data);
 
+static unsigned long long pps;
+static unsigned long long bps;
+static unsigned long long start;
+static unsigned long long end;
+static unsigned long long bytes;
+static unsigned long long packets;
+const char* protocols [4] = {"ip","udp","tcp","arp"};
 
 int main()
 {
@@ -34,12 +42,21 @@ int main()
 	char error_buffer[PCAP_ERRBUF_SIZE];
 	int i=0;			// Count devices and provide jumping to the selected device 
     int device_number;
+	int protocol;
+	int finished;
     struct bpf_program fcode;
     struct tm ltime;
 	char timestr[16];
     struct timeval start_time;
+	
     time_t t;
 
+	bytes=0;
+	start=0;
+	end=0;
+	pps=0;
+	bps=0;
+	packets=0;
     // Retrieve the device list on the local machine
     if (pcap_findalldevs(&devices, error_buffer) == -1)
 	{
@@ -88,7 +105,7 @@ int main()
     if ((device_handle = pcap_open_live( device->name,		// Name of the device
                               65536,						// Portion of the packet to capture (65536 guarantees that the whole packet will be captured on all the link layers)
                               1,							// Promiscuous  mode
-                              5000,							// Read timeout
+                              2000,							// Read timeout
 							  error_buffer					// Buffer where error message is stored
 							) ) == NULL)
     {
@@ -103,9 +120,20 @@ int main()
 		printf("\nThis program works only on Ethernet networks.\n");
 		return -1;
 	}
-
+	do
+	{
+		printf("\nChoose protocol:\n1. IP\n2. UDP\n3. TCP\n4. ARP\n");
+		scanf(" %i",&protocol);
+		finished=1;
+		if(protocol<1 || protocol>4)
+		{
+			printf("\nEnter number in range 1-4\n");
+			finished=0;
+			
+		}
+	}while(!finished);
 	// Compile the filter
-	if (pcap_compile(device_handle, &fcode, "udp", 1, 0xffffff) < 0)
+	if (pcap_compile(device_handle, &fcode, protocols[protocol-1], 1, 0xffffff) < 0)
 	{
 		 printf("\n Unable to compile the packet filter. Check the syntax.\n");
 		 return -1;
@@ -122,12 +150,27 @@ int main()
 	if (pcap_setmode(device_handle, MODE_STAT) < 0)
 	{
 		printf("\nError setting the mode.\n");
-		 pcap_close(device_handle);
+		pcap_close(device_handle);
 		// Free the device list 
 		return 0;
 	}
-
-	printf("\nUDP traffic summary:\n");
+	
+	switch(protocol)
+	{
+	case 1:
+		printf("\nIP traffic summary:\n");
+		break;
+	case 2:
+		printf("\nUDP traffic summary:\n");
+		break;
+	case 3:
+		printf("\nTCP traffic summary:\n");
+		break;
+	case 4:
+		printf("\nARP traffic summary:\n");
+		break;
+	}
+	
 	
 	// Get current time in which statistical analysis starts
 	t = time(0);
@@ -141,12 +184,38 @@ int main()
 	start_time.tv_usec=0;
 
 	// Start statistical analysis
-	pcap_loop(device_handle, 0, statistics_handler, (unsigned char*)&start_time);
+	pcap_loop(device_handle, 1 , statistics_handler, (unsigned char*)&start_time);
 
+	printf("\nAverage bits/sec : %llu\n",bps/15);
+	printf("\nAverage packets/sec : %llu\n",pps/15);
+
+	if (pcap_setmode(device_handle, MODE_CAPT) < 0)
+	{
+		printf("\nError setting the mode.\n");
+		pcap_close(device_handle);
+		// Free the device list 
+		return 0;
+	}
+
+	pcap_loop(device_handle,20,packet_handler,NULL);
+
+	printf("\n %llu packets/sec\n",packets/(end-start));
+	printf("\n %llu bits/sec\n",(bytes*8)/(end-start));
 	// Close the device
 	pcap_close(device_handle);
 
 	return 0;
+}
+
+void packet_handler(unsigned char* param, const struct pcap_pkthdr *packet_header, const unsigned char *packet_data)
+{
+	struct timeval ts= packet_header->ts;
+	if(start == 0){
+		start=ts.tv_sec*1000000+ts.tv_usec;
+	}
+	end = ts.tv_sec*1000000+ts.tv_usec;
+	bytes+=packet_header->len;
+	packets++;
 }
 
 /* Calculates statistics */
@@ -181,13 +250,14 @@ void statistics_handler(unsigned char* param, const struct pcap_pkthdr* packet_h
     local_tv_sec = packet_header->ts.tv_sec;
     localtime_s(&ltime, &local_tv_sec);
     strftime( timestr, sizeof timestr, "%H:%M:%S", &ltime);
-
+	pps+=packets_per_second;
+	bps+=bits_per_second;
     // Print timestamp
     printf("%s  ", timestr);
-
     // Print results (bps and pps)
-    printf("%I64u bits/s, ", bits_per_second);
-    printf("%I64u packets/s\n", packets_per_second);
+	printf("%i Bytes, %i packets\n",(*(int*)(packet_data+8)),(*(int*)(packet_data)));
+    printf("\t%I64u bits/s, ", bits_per_second);
+    printf("\t%I64u packets/s\n", packets_per_second);
 
     // Store current timestamp
     old_ts->tv_sec=packet_header->ts.tv_sec;
